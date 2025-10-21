@@ -34,6 +34,11 @@ resource "digitalocean_kubernetes_cluster" "this" {
     name       = "default"
     size       = var.node_size
     node_count = var.node_count
+
+    auto_scale = var.enable_autoscale
+    min_nodes  = var.enable_autoscale ? var.min_nodes : null
+    max_nodes  = var.enable_autoscale ? var.max_nodes : null
+
     tags       = var.tags
   }
 

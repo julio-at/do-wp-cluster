@@ -39,6 +39,22 @@ variable "node_count" {
   default     = 3
 }
 
+## Enable autoscaling
+variable "enable_autoscale" { 
+  type = bool   
+  default = false 
+}
+
+variable "min_nodes" { 
+  type = number 
+  default = 3 
+}
+
+variable "max_nodes" { 
+  type = number 
+  default = 6 
+}
+
 variable "vpc_cidr" {
   description = "VPC CIDR for the cluster region (e.g., 10.10.0.0/16)"
   type        = string
