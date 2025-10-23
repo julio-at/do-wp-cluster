@@ -1,145 +1,124 @@
-# Documentation Index — do-wp-cluster
+# do-wp-cluster — Docs Index
 
-**Purpose:** Master guide to design, operations, and runbooks for WordPress on DigitalOcean Kubernetes (DOKS) with multi‑zone DR (**PZ nyc3** / **BZ sfo3**).  
-**Workflow:** documentation → implementation → tests.
+This repo orchestrates a dual‑zone WordPress deployment on DigitalOcean:
+- **Primary Zone (PZ)**: `nyc3`
+- **Backup Zone (BZ)**: `sfo3` (on‑demand/cold)
+- **Kubernetes (DOKS)** per zone
+- **Managed MySQL (DigitalOcean)** per zone (PZ active, BZ optional/cold)
+- **Ingress/TLS** via NGINX Ingress + cert‑manager (DNS‑01/Cloudflare)
+- **Observability** via kube‑prometheus‑stack (SLOs, synthetics)
 
----
-
-## Conventions
-- **Zones:** **PZ** = Primary Zone (nyc3), **BZ** = Backup Zone (sfo3).
-- **Domains:** `wp-active.guajiro.xyz` (logical CNAME) → `wp-pz.guajiro.xyz` or `wp-bz.guajiro.xyz`.
-- **Principles:** minimal steady cost, explicit flips, managed DB, object storage for media.
-
----
-
-## Start Here (Stages)
-1. Stage 01 — Preparation → [docs/stages/01-preparation.md](stages/01-preparation.md)
-2. Stage 02 — Minimal Infrastructure → [docs/stages/02-minimal-infrastructure.md](stages/02-minimal-infrastructure.md)
-3. Stage 03 — Ingress & Certs (docs-first) → [docs/stages/03-ingress-and-certs.md](stages/03-ingress-and-certs.md)
-4. Stage 04 — DNS CNAME & Exposure → [docs/stages/04-dns-cname-and-exposure.md](stages/04-dns-cname-and-exposure.md)
-5. Stage 05 — WordPress Minimal → [docs/stages/05-wordpress-minimal.md](stages/05-wordpress-minimal.md)
-6. Stage 06 — Backup Zone On-Demand → [docs/stages/06-backup-zone-on-demand.md](stages/06-backup-zone-on-demand.md)
-7. Stage 07 — DR Game Day → [docs/stages/07-disaster-recovery-game-day.md](stages/07-disaster-recovery-game-day.md)
-
-> Stages are designed to be executed in order; each stage has acceptance criteria and links to supporting docs.
+> We use **default regional VPCs** (`default-<region>`) for both clusters and DBs. No database firewall yet (by design during Stage‑02). TLS + credentials are enforced; firewall rules will be added later.
 
 ---
 
-## Operations Runbooks
-- **DNS flip (CNAME)** — [docs/runbooks/dns/flip-active-cname.md](runbooks/dns/flip-active-cname.md)
-- **Promote replica to writer (BZ)** — [docs/runbooks/db/promote-replica-to-writer.md](runbooks/db/promote-replica-to-writer.md)
-- **Restore writer in BZ** — [docs/runbooks/db/restore-writer-in-bz.md](runbooks/db/restore-writer-in-bz.md)
-- **Platform bring‑up (zone)** — [docs/runbooks/platform/platform-bringup-zone.md](runbooks/platform/platform-bringup-zone.md)
-- **Platform teardown (zone)** — [docs/runbooks/platform/platform-teardown-zone.md](runbooks/platform/platform-teardown-zone.md)
-- **Failback to PZ** — [docs/runbooks/platform/failback-to-primary-zone.md](runbooks/platform/failback-to-primary-zone.md)
-- **WP minimal deploy** — [docs/runbooks/app/wp-minimal-deploy.md](runbooks/app/wp-minimal-deploy.md)
-- **DR Game‑Day playbook** — [docs/runbooks/dr-game-day-playbook.md](runbooks/dr-game-day-playbook.md)
+## Repo Map (docs/)
+
+- `docs/README.md` ← (this file) high‑level map & stage guide
+- `docs/infra/` — infra notes (workspaces, VPC, regions)
+- `docs/dns/` — DNS strategy (CNAME active/pz/bz), TTL policy
+- `docs/app/` — WordPress app notes (external DB, media offload, caching)
+  - `docs/app/wp-perf-roadmap.md` — Hybrid RWX `wp-content/` → Immutable core
+- `docs/security/` — secrets, state backend, trusted sources, backup
+- `docs/observability/` — SLOs, metrics, logs, synthetics
+- `docs/runbooks/` — operational procedures (flip CNAME, promote/restore, failback, deploy)
+- `docs/testing/` — test plans & evidence
+  - `docs/testing/db-smoke-test.md` — **Stage‑02 DB connectivity test (PZ/BZ)** ✅
 
 ---
 
-## Infra
-- Overview — [docs/infra/00-overview.md](infra/00-overview.md)
-- Layout — [docs/infra/terraform-layout.md](infra/terraform-layout.md)
-- Environments & Workspaces — [docs/infra/environments-and-workspaces.md](infra/environments-and-workspaces.md)
-- Variables & tfvars — [docs/infra/variables-and-tfvars.md](infra/variables-and-tfvars.md)
-- DOKS module — [docs/infra/doks-module.md](infra/doks-module.md)
-- Networking & VPC — [docs/infra/networking-vpc.md](infra/networking-vpc.md)
-- Tagging & Naming — [docs/infra/tagging-and-naming.md](infra/tagging-and-naming.md)
-- Cost controls — [docs/infra/cost-controls.md](infra/cost-controls.md)
-- Cost & Hygiene (extended) — [docs/infra/cost-playbook.md](infra/cost-playbook.md)
+## Stages (high‑level)
+
+1. **Stage‑01** — Bootstrap repo, providers, versions, workspaces.
+2. **Stage‑02** — **Infra apply (K8s) + Managed MySQL (DO)**  
+   - DBs attach to the **default regional VPC** automatically (`default-nyc3`, `default-sfo3`).  
+   - **No firewall** yet (keeps process zero‑touch). TLS + credentials only.
+   - Outputs provide `private_host`, `host`, `port`, `username`, `password`, `database`, and `ca_cert`.
+   - Validate with `docs/testing/db-smoke-test.md`.
+3. **Stage‑03** — Ingress + cert‑manager (DNS‑01 via Cloudflare), minimal exposure.
+4. **Stage‑04** — DNS CNAME wiring (manual), “active/pz/bz” endpoints.
+5. **Stage‑05** — WordPress minimal (external DB, media offload).
+6. **Stage‑06/07** — BZ on‑demand + DR Game‑Day; hardening (DB firewall rules, WAF).
 
 ---
 
-## DNS
-- CNAME Strategy — [docs/dns/cname-strategy.md](dns/cname-strategy.md)
-- TTL Policy — [docs/dns/ttl-policy.md](dns/ttl-policy.md)
+## Stage‑02 — How we provision DBs (summary)
+
+- Module path: `terraform/doks/modules/db`
+- Root wiring: `terraform/doks/db-variables.tf`, `terraform/doks/db-main.tf`, `terraform/doks/db-outputs.tf`
+- **VPC**: we do **not create** VPCs. We **lookup** `default-<region>` and pass its UUID to the DB module.
+- **Firewall**: none during Stage‑02 (simplifies bring‑up; add later).
+- **Workspaces**: `prod-pz`, `prod-bz`
+- **tfvars**: `terraform/env/prod/pz.tfvars`, `terraform/env/prod/bz.tfvars`  
+  (contain both **K8s** and **DB** blocks; BZ DB usually disabled by default)
+
+### Minimal commands (PZ then optional BZ)
+
+```bash
+cd terraform/doks
+terraform init -upgrade
+
+# PZ
+terraform workspace select prod-pz || terraform workspace new prod-pz
+terraform plan  -var-file=../env/prod/pz.tfvars  -out=tfplan-pz
+terraform apply tfplan-pz
+
+# (Optional) BZ for test
+terraform workspace select prod-bz || terraform workspace new prod-bz
+terraform plan  -var-file=../env/prod/bz.tfvars  -out=tfplan-bz
+terraform apply tfplan-bz
+```
+
+### Outputs
+```bash
+terraform output -json | jq 'keys'
+terraform output -json db_pz | jq 'keys'   # host, private_host, port, database, username, password, ca_cert
+```
+
+> **Store secrets safely** (vault/secret manager). Avoid printing raw values in CI logs.
 
 ---
 
-## App (WordPress)
-- Overview — [docs/app/00-overview.md](app/00-overview.md)
-- Configuration — [docs/app/wordpress-configuration.md](app/wordpress-configuration.md)
-- Values Blueprint — [docs/app/values-blueprint.md](app/values-blueprint.md)
-- Content & Media Strategy — [docs/app/content-media-strategy.md](app/content-media-strategy.md)
-- Blue/Green release plan — [docs/app/bluegreen-release-plan.md](app/bluegreen-release-plan.md)
-- Operational checklists — [docs/app/operational-checklists.md](app/operational-checklists.md)
+## Stage‑02 — DB connectivity smoke test
+
+Follow **`docs/testing/db-smoke-test.md`**.  
+It runs a **Kubernetes Job** in each cluster that:
+- waits for DNS and TCP
+- `mysqladmin ping` with `VERIFY_CA`
+- `SELECT 1` using the `private_host` and the CA from Terraform outputs
+
+**Success criteria:** Job completes, `mysqld is alive`, `SELECT 1` returns `1`, then `OK`.
 
 ---
 
-## Observability
-- Overview — [docs/observability/00-overview.md](observability/00-overview.md)
-- Metrics stack — [docs/observability/01-metrics-stack.md](observability/01-metrics-stack.md)
-- Alerts & SLOs — [docs/observability/02-alerts-and-slos.md](observability/02-alerts-and-slos.md)
-- Grafana dashboards — [docs/observability/03-grafana-dashboards.md](observability/03-grafana-dashboards.md)
-- Synthetic probes — [docs/observability/04-synthetic-probes.md](observability/04-synthetic-probes.md)
-- Logging & tracing — [docs/observability/05-logging-and-tracing.md](observability/05-logging-and-tracing.md)
-- Multi‑zone & DR observability — [docs/observability/06-multi-zone-dr-observability.md](observability/06-multi-zone-dr-observability.md)
-- Observability runbooks — [docs/observability/07-runbooks-observability.md](observability/07-runbooks-observability.md)
+## Branching & Safety
+
+- Use feature branches for risky steps (e.g., `dodb` for DB work).
+- Each **workspace** (`prod-pz`, `prod-bz`) has **its own state**. `terraform destroy` only affects the **current** workspace.
+- Keep BZ **cold** (`enable_db_bz=false`) unless actively testing DR.
 
 ---
 
-## Security
-- Secrets policy — [docs/security/secrets-policy.md](security/secrets-policy.md)
-- Backup policy — [docs/security/backup-policy.md](security/backup-policy.md)
-- State backend — [docs/security/state-backend.md](security/state-backend.md)
-- Trusted sources — [docs/security/trusted-sources.md](security/trusted-sources.md)
+## Next
+
+- Proceed to **Stage‑03** (Ingress + cert‑manager).  
+- Then wire **DNS CNAME** (Stage‑04) and deploy **WP minimal** (Stage‑05).
+- After functional validation, add **DB firewall** rules (VPC CIDR or k8s UUID) and WAF/IP ACLs for `/wp-admin`.
 
 ---
 
-## CI/CD
-- Overview — [docs/cicd/00-overview.md](cicd/00-overview.md)
-- GitHub Actions (design) — [docs/cicd/github-actions.md](cicd/github-actions.md)
-- GitLab CI (design) — [docs/cicd/gitlab-ci.md](cicd/gitlab-ci.md)
-- Pipelines & gates — [docs/cicd/pipelines-and-gates.md](cicd/pipelines-and-gates.md)
-- Secrets & permissions — [docs/cicd/secrets-and-permissions.md](cicd/secrets-and-permissions.md)
-- GitOps vs Actions — [docs/cicd/gitops-vs-actions.md](cicd/gitops-vs-actions.md)
-- Promotion strategy — [docs/cicd/promotion-strategy.md](cicd/promotion-strategy.md)
+## Quick Troubleshooting (Stage‑02)
+
+- **Prompt for missing vars (e.g., cluster_name)** → ensure you pass both K8s + DB vars in your `*.tfvars` or unify them.
+- **VPC overlaps** → we removed VPC creation; lookup default VPC only.
+- **DB name is not available** → you are trying to create PZ inside BZ workspace; set `enable_db_pz=false` in `bz.tfvars`.
+- **MySQL port empty** → stringify in JSON export: `jq -r '.db_*.value.port | tostring'` and pass it in the Secret.
+- **Kubeconfig (snap) permission** → `sudo snap connect doctl:kube-config`; fix `~/.kube` perms (`700/600`).
 
 ---
 
-## Platform (Ingress)
-- Ingress operations (ES) — [docs/platform/ingress-operations.md](platform/ingress-operations.md)
-- Ingress operations (EN) — [docs/platform/ingress-operations-en.md](platform/ingress-operations-en.md)
-- LB IP rotation (ES) — [docs/platform/lb-ip-rotation.md](platform/lb-ip-rotation.md)
-- LB IP rotation (EN) — [docs/platform/lb-ip-rotation-en.md](platform/lb-ip-rotation-en.md)
-- Exposure policy (ES) — [docs/platform/exposure-policy.md](platform/exposure-policy.md)
-- Exposure policy (EN) — [docs/platform/exposure-policy-en.md](platform/exposure-policy-en.md)
+## References
 
----
-
-## Database
-- Overview — [docs/db/00-overview.md](db/00-overview.md)
-- Operations — [docs/db/operations.md](db/operations.md)
-- Connectivity & TLS tests — [docs/db/connectivity-tests.md](db/connectivity-tests.md)
-- Password rotation — [docs/db/password-rotation.md](db/password-rotation.md)
-- Sizing & maintenance — [docs/db/sizing-and-maintenance.md](db/sizing-and-maintenance.md)
-
----
-
-## Testing
-- Overview — [docs/testing/00-overview.md](testing/00-overview.md)
-- Stage 05 — smoke/functional — [docs/testing/stage05-smoke-tests.md](testing/stage05-smoke-tests.md)
-- Stage 06 — BZ readiness — [docs/testing/stage06-bz-readiness.md](testing/stage06-bz-readiness.md)
-- Stage 07 — DR rehearsal — [docs/testing/stage07-dr-rehearsal.md](testing/stage07-dr-rehearsal.md)
-- Evidence checklist — [docs/testing/evidence-checklist.md](testing/evidence-checklist.md)
-- RTO/RPO measurement — [docs/testing/rto-rpo-method.md](testing/rto-rpo-method.md)
-
----
-
-## Snippets (reference)
-- ClusterIssuers (Cloudflare) — [docs/snippets/clusterissuers-cloudflare.md](snippets/clusterissuers-cloudflare.md)
-- Ingress-NGINX values — [docs/snippets/ingress-nginx-values.md](snippets/ingress-nginx-values.md)
-- kube-prometheus-stack values — [docs/snippets/kps-values.md](snippets/kps-values.md)
-- ExternalDNS annotations — [docs/snippets/externaldns-annotations.md](snippets/externaldns-annotations.md)
-
----
-
-## Decisions & FAQ
-- ADRs — [ADR-01](decisions/adr-01-cname-active-record.md), [ADR-02](decisions/adr-02-dr-strategy-replica-vs-restore.md), [ADR-03](decisions/adr-03-managed-mysql-vs-selfhosted.md), [ADR-04](decisions/adr-04-externaldns-scope.md), [ADR-05](decisions/adr-05-gitops-vs-actions.md)
-- FAQ — [docs/faq.md](faq.md)
-
----
-
-## Next Steps
-- Lock docs → implement Stages 01–04 in PZ → Stage 05 (WP minimal) → Stage 06 (BZ on‑demand) → Stage 07 (DR Game‑Day).
-- After first pass: consider Argo CD, ExternalDNS, and exposing monitoring behind auth.
+- `docs/testing/db-smoke-test.md`
+- `docs/app/wp-perf-roadmap.md`
+- `docs/runbooks/*` (to be extended in next stages)
