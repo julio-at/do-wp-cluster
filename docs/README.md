@@ -1,111 +1,103 @@
-# do-wp-cluster — Docs Index
+# do-wp-cluster — Documentation Index
 
-This repo orchestrates a dual-zone WordPress deployment on DigitalOcean:
+> Project: **do-wp-cluster** • Domain: **guajiro.xyz** • Zones: **PZ (nyc3)** / **BZ (sfo3)**
 
-- **Primary Zone (PZ)**: `nyc3`
-- **Backup Zone (BZ)**: `sfo3` (on-demand / cold)
-- **Kubernetes (DOKS)** per zone
-- **Managed MySQL (DigitalOcean)** per zone (PZ active, BZ optional/cold)
-- **Ingress/TLS** via NGINX Ingress + cert-manager (DNS-01 / Cloudflare)
-- **Observability** via kube-prometheus-stack (SLOs, synthetics)
-
-> We use **default regional VPCs** (`default-<region>`) for both clusters and DBs.  
-> During **Stage-02** there is **no DB firewall** (by design). TLS + credentials only.  
-> Hardening (DB firewall / WAF) happens after functionality is proven.
+This index keeps pointers to the working docs, runbooks, and snippets we use across stages. It matches the current repository structure (branch `dodb`).
 
 ---
 
-## Repo Map (docs/)
+## Quick Links
 
-- `docs/README.md` ← this file (high-level map & stage guide)
-- `docs/infra/` — infra notes (workspaces, regions, VPC, autoscaling)
-- `docs/dns/` — DNS strategy (CNAME active/pz/bz), TTL policy
-- `docs/app/` — WordPress app notes (external DB, media offload, caching)
-  - `docs/app/wp-perf-roadmap.md` — Hybrid approach: RWX `wp-content/` + immutable core
-- `docs/security/` — secrets, state backend, trusted sources, backup policy
-- `docs/observability/` — SLOs, metrics, logs, synthetics
-- `docs/runbooks/` — operational procedures (flip CNAME, promote/restore, failback, deploy)
-  - `docs/runbooks/stage-02-db.md` — **Stage-02 DB runbook (create/apply/validate/destroy)** ✅
-- `docs/testing/` — test plans & evidence
-  - `docs/testing/db-smoke-test.md` — **Stage-02 DB connectivity test (PZ/BZ)** ✅
+- **Stages**
+  - Stage 01: Preparation — `docs/stages/01-preparation.md`
+  - Stage 02: Infra (DOKS + DO Managed MySQL) — `docs/stages/02-infra.md` and `docs/stages/02-minimal-infrastructure.md`
+  - Stage 03: Platform Baseline (cert-manager + Ingress) — `docs/stages/03-platform-baseline.md`
+  - Stage 04: DNS & Exposure — `docs/stages/04-dns-and-exposure.md` / `docs/stages/05-dns-and-exposure.md`
+  - Stage 06: Backup Zone (On-demand) — `docs/stages/06-backup-zone-on-demand.md`
+  - Stage 07: DR Game Day — `docs/stages/07-disaster-recovery-game-day.md`
 
----
+- **Runbooks**
+  - Stage-02 DB (Primary/Backup) — `docs/runbooks/stage-02-db.md`
+  - DB: Promote Replica → Writer (BZ) — `docs/runbooks/db/promote-replica-to-writer.md`
+  - DB: Restore Writer in BZ — `docs/runbooks/db/restore-writer-in-bz.md`
+  - DNS: Flip Active CNAME — `docs/runbooks/dns/flip-active-cname.md`
+  - Platform: Bring-up per Zone (Stage 03) — `docs/runbooks/platform/platform-bringup-zone.md`
+  - Platform: Teardown / Failback — `docs/runbooks/platform/platform-teardown-zone.md`, `docs/runbooks/platform/failback-to-primary-zone.md`
 
-## Stages (high-level)
+- **Snippets**
+  - cert-manager ClusterIssuers (Cloudflare DNS-01) — `docs/snippets/clusterissuers-cloudflare.md`
+  - cert-manager Certificates (staging → prod) — `docs/snippets/certificates-usage.md`
+  - Ingress NGINX values — `docs/snippets/ingress-nginx-values.md`
+  - kube-prometheus-stack values — `docs/snippets/kps-values.md`
+  - ExternalDNS annotations — `docs/snippets/externaldns-annotations.md`
 
-1. **Stage-01** — Bootstrap repo, providers, versions, workspaces.
-2. **Stage-02** — **Infra apply (K8s) + Managed MySQL (DO)**
-   - DBs attach automatically to the **default regional VPC** (`default-nyc3`, `default-sfo3`).
-   - **No DB firewall** in this stage to keep bring-up zero-touch.
-   - Terraform outputs include: `private_host`, `host`, `port`, `database`, `username`, `password`, `ca_cert`.
-   - Validate with **`docs/testing/db-smoke-test.md`** and operate with **`docs/runbooks/stage-02-db.md`**.
-3. **Stage-03** — Ingress + cert-manager (DNS-01 via Cloudflare), minimal exposure.
-4. **Stage-04** — DNS CNAME wiring (manual), active/pz/bz endpoints.
-5. **Stage-05** — WordPress minimal (external DB, media offload).
-6. **Stage-06/07** — BZ on-demand + DR Game-Day; add DB firewall, WAF/IP ACLs.
-
----
-
-## Stage-02 — How DBs are provisioned (summary)
-
-- Module path: `terraform/doks/modules/db/`
-- Root wiring: `terraform/doks/db-variables.tf`, `terraform/doks/db-main.tf`, `terraform/doks/db-outputs.tf`
-- **VPC**: we **do not create** VPCs. We **lookup** `default-<region>` and pass its UUID to the DB module.
-- **Firewall**: none during Stage-02 (TLS + creds only).
-- **Workspaces**: `prod-pz`, `prod-bz`
-- **tfvars**: `terraform/env/prod/pz.tfvars`, `terraform/env/prod/bz.tfvars`
-  - Each file contains **both** K8s and DB blocks; **BZ DB** usually **disabled** by default.
-
-### Minimal commands
-
-```bash
-cd terraform/doks
-terraform init -upgrade
-
-# PZ
-terraform workspace select prod-pz || terraform workspace new prod-pz
-terraform plan  -var-file=../env/prod/pz.tfvars  -out=tfplan-pz
-terraform apply tfplan-pz
-
-# (Optional) BZ for test
-terraform workspace select prod-bz || terraform workspace new prod-bz
-terraform plan  -var-file=../env/prod/bz.tfvars  -out=tfplan-bz
-terraform apply tfplan-bz
-```
-
-### Outputs
-
-```bash
-terraform output -json | jq 'keys'
-terraform output -json db_pz | jq 'keys'   # host, private_host, port, database, username, password, ca_cert
-```
-
-> **Store secrets safely** (vault/secret manager). Avoid printing raw values in CI logs.
+- **Testing**
+  - DB smoke (K8s → DO Managed MySQL, TLS) — `docs/testing/db-smoke-test.md`
+  - Evidence checklist — `docs/testing/evidence-checklist.md`
+  - Stage 05 smoke — `docs/testing/stage05-smoke-tests.md`
+  - Stage 06 BZ readiness — `docs/testing/stage06-bz-readiness.md`
+  - Stage 07 DR rehearsal — `docs/testing/stage07-dr-rehearsal.md`
 
 ---
 
-## Stage-02 — Connectivity smoke test
+## Stage 02 — What to Expect
 
-Follow **`docs/testing/db-smoke-test.md`**.  
-It runs a **Kubernetes Job** in each cluster that:
-- waits for DNS and TCP,
-- `mysqladmin` ping with `VERIFY_CA`,
-- `SELECT 1` using the private endpoint and the CA from Terraform outputs.
+- Terraform (per workspace) provisions:
+  - DOKS cluster per region (PZ: nyc3, BZ: sfo3)
+  - DO Managed MySQL per region (tier mínimo), user `wp_app`, DB `wp_prod`
+  - VPC: default per region (no DB firewall for now)
+- **Outputs**: host/private_host, port, database, username, password, ca_cert, cluster_name.
+- **Connectivity test script**: `terraform/scripts/db-smoke.sh` (no env vars required).
+  ```bash
+  cd terraform/doks
+  bash ../scripts/db-smoke.sh --zone pz    # or --zone bz | --zone both
+  ```
 
-**Success:** Job `Complete`, logs show `mysqld is alive`, `SELECT 1` returns `1`, then `OK`.
-
----
-
-## Branching & Safety
-
-- Use feature branches for risky changes (e.g., `dodb` for DB work).
-- Each **workspace** has its **own state**; `terraform destroy` affects **only** the active workspace.
-- Keep BZ **cold** (`enable_db_bz = false`) unless testing DR.
+If `apply` fails with “name already exists”, import existing resources to the workspace before re-applying.
 
 ---
 
-## Next
+## Stage 03 — What to Expect
 
-- Proceed to **Stage-03** (cert-manager + ingress).  
-- Prepare a **Cloudflare API token** with DNS-edit for the domain (for DNS-01).  
-- After functionality is validated, add **DB firewall** (VPC CIDR or k8s UUID) and WAF/IP ACLs.
+- Install **cert-manager** with CRDs in each zone; store **Cloudflare API token** as Secret:
+  - Secret: `cert-manager/cloudflare-api-token` (key: `api-token`)
+- Apply **ClusterIssuers** (staging + prod) per zone:
+  - PZ: `k8s/platform/pz/cert-manager/clusterissuers.yaml`
+  - BZ: `k8s/platform/bz/cert-manager/clusterissuers.yaml`
+- (Optional) Pre-provision **Certificates** (staging) per zone:
+  - PZ: `k8s/platform/pz/tls/wp-cert.yaml`
+  - BZ: `k8s/platform/bz/tls/wp-cert.yaml`
+- Deploy **NGINX Ingress** in **PZ** (`LoadBalancer`, `replicaCount: 2`):
+  - `k8s/platform/pz/ingress-nginx/values.yaml`
+  - Optional HTTP smoke: `k8s/platform/pz/ingress-nginx/echo.yaml`
+- Keep **BZ** ingress **cold** (e.g., `replicaCount: 0`).
+
+Full step-by-step: `docs/runbooks/platform/platform-bringup-zone.md`
+
+---
+
+## ADRs / Decisions
+
+- CNAME active record is **manual** (no ExternalDNS) — `docs/decisions/adr-01-cname-active-record.md`
+- DR strategy: **restore-on-activation** (no continuous replica) — `docs/decisions/adr-02-dr-strategy-replica-vs-restore.md`
+- Managed MySQL (DO) vs self-hosted — `docs/decisions/adr-03-managed-mysql-vs-selfhosted.md`
+- ExternalDNS scope (when/if enabled) — `docs/decisions/adr-04-externaldns-scope.md`
+- GitOps vs Actions — `docs/decisions/adr-05-gitops-vs-actions.md`
+
+---
+
+## Repo Structure (short)
+
+See the repo for full tree; key areas:
+- `terraform/doks`: IaC for clusters + managed DBs (per workspace).
+- `k8s/platform`: platform manifests by zone (cert-manager, ingress, tls).
+- `docs/`: stages, runbooks, snippets, testing, decisions.
+- `docs/app`, `docs/db`, `docs/observability`: app/database/obs specifics.
+
+---
+
+## Notes
+
+- Keep `BZ` “cold” to control costs; activate on demand (Stage 06).
+- `wp-active.guajiro.xyz` remains **manual CNAME** flip.
+- No DB firewall for now; TLS + credentials only (per Stage-02 scope).
