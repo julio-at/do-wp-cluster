@@ -40,19 +40,19 @@ variable "node_count" {
 }
 
 ## Enable autoscaling
-variable "enable_autoscale" { 
-  type = bool   
-  default = false 
+variable "enable_autoscale" {
+  type    = bool
+  default = false
 }
 
-variable "min_nodes" { 
-  type = number 
-  default = 3 
+variable "min_nodes" {
+  type    = number
+  default = 3
 }
 
-variable "max_nodes" { 
-  type = number 
-  default = 6 
+variable "max_nodes" {
+  type    = number
+  default = 6
 }
 
 variable "vpc_cidr" {
