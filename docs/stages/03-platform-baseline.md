@@ -1,191 +1,74 @@
-# Stage 03 — Platform Baseline (no public exposure)
+# Stage 03 — Platform Baseline (cert-manager + Ingress)
 
-## Purpose
-Prepare each cluster (PZ/BZ) to host applications safely and observably **without** exposing services yet. We set up:
-- Namespaces & base RBAC
-- `cert-manager` with **DNS-01 via Cloudflare** (staging + prod Issuers)
-- Observability baseline: **kube-prometheus-stack** (Prometheus, Alertmanager, Grafana) with internal-only services
+**Objective:** Prepare TLS and ingress for the platform in **Primary Zone (PZ)**, and pre-stage **Backup Zone (BZ)**. No app exposure or DNS flip yet (that’s Stage-04).
 
 ## Scope
-- Applies independently to each zone (run on PZ first, then BZ when needed).
-- No LoadBalancers, no Ingress Controller yet (that is Stage 04).
+- **cert-manager** installed and configured with **DNS-01 (Cloudflare)**.
+- **ClusterIssuers** for **staging** and **production**.
+- **NGINX Ingress Controller** in **PZ** only (LoadBalancer).
+- **BZ**: only prepare cert-manager (issuers). Keep ingress **cold** for now.
+
+> We keep the repo’s existing structure. All manifests and runbooks referenced here live under the current folders in the `dodb` branch. No file moves.
 
 ---
 
 ## Prerequisites
-- Working kubeconfig for the target zone:
-  - PZ: `artifacts/kubeconfig-pz`
-  - BZ: `artifacts/kubeconfig-bz`
-- Cloudflare API token with permissions for DNS-01 (Zone:DNS:Edit, Zone:Read).
-- `helm` ≥ 3.12, `kubectl`.
-
-Set your context (example PZ):
-```bash
-export KUBECONFIG=$PWD/artifacts/kubeconfig-pz
-kubectl get nodes
-```
+- Cloudflare account managing `guajiro.xyz`.
+- **Cloudflare API Token** (scoped to `guajiro.xyz`) with:
+  - Permissions: `Zone.Zone:Read`, `Zone.DNS:Edit`
+- Contact email for Let’s Encrypt (e.g., `ops@guajiro.xyz`).
+- Kubeconfig/context set to **PZ** for PZ steps; **BZ** for BZ steps.
+- Clusters and (if needed) DBs are already provisioned in Stage-02.
 
 ---
 
-## Namespaces & base layout
-We’ll standardize two namespaces:
-- `platform` – platform components (cert-manager, monitoring stack)
-- `app` – application workloads (WordPress later)
+## Deliverables (this stage)
+- Snippet: `docs/snippets/clusterissuers-cloudflare.md` (reference for Issuers)
+- Runbook: `docs/runbooks/platform/platform-bringup-zone.md` (step-by-step)
+- Prepared (empty or to-be-filled later) k8s structure under:
+  - `k8s/platform/pz/cert-manager/clusterissuers.yaml`
+  - `k8s/platform/pz/ingress-nginx/values.yaml`
+  - `k8s/platform/pz/ingress-nginx/echo.yaml` (optional smoke)
+  - `k8s/platform/bz/cert-manager/clusterissuers.yaml`
+  - `k8s/platform/bz/ingress-nginx/values.yaml` (replicaCount: 0 recommended)
 
-```bash
-kubectl create namespace platform --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace app --dry-run=client -o yaml | kubectl apply -f -
-```
-
-(Optional) A simple read-only ClusterRole for on-call dashboards:
-```yaml
-# docs/snippets/clusterrole-readonly.yaml (optional)
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata: { name: view-readonly }
-rules:
-- apiGroups: ["*"]
-  resources: ["*"]
-  verbs: ["get","list","watch"]
-```
-> Apply later if you need limited view-only access.
+> This stage focuses on **readiness**. Certificates can be issued via DNS-01 without pointing DNS to the LoadBalancer yet.
 
 ---
 
-## cert-manager (DNS-01 with Cloudflare)
+## High-level Plan
 
-### 1) Install cert-manager (CRDs enabled)
-```bash
-helm repo add jetstack https://charts.jetstack.io
-helm repo update
-helm upgrade --install cert-manager jetstack/cert-manager   --namespace platform   --set crds.enabled=true
-kubectl -n platform rollout status deploy/cert-manager-webhook --timeout=180s
-```
+1) **Namespaces + Secret (Cloudflare token)**  
+   - Create `cert-manager` and `ingress-nginx` namespaces.  
+   - Store token as `Secret` → `cert-manager/cloudflare-api-token` (key: `api-token`).
 
-### 2) Store the Cloudflare API token (secret)
-Use a **scoped** API token (Zone:DNS:Edit + Zone:Read), not a global key.
+2) **Install cert-manager (Helm)**  
+   - Install CRDs and controller in `cert-manager` namespace.
 
-```bash
-kubectl -n platform create secret generic cloudflare-api-token-secret   --from-literal=api-token='<YOUR_CF_API_TOKEN>'
-```
+3) **ClusterIssuers**  
+   - Apply `ClusterIssuer` for **staging** and **prod** using Cloudflare DNS-01 solver.  
+   - Optional: pre-provision `Certificate` for `wp-pz.guajiro.xyz` and `wp-active.guajiro.xyz` (staging first).
 
-### 3) Create ClusterIssuers (Let’s Encrypt staging & prod)
-Copy/paste and apply:
+4) **NGINX Ingress Controller (PZ)**  
+   - Deploy with `LoadBalancer` service.
+   - Optional: `echo` app + Ingress to smoke HTTP via EXTERNAL-IP.
 
-```yaml
-# docs/snippets/clusterissuers-cloudflare.yaml
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: le-staging-cloudflare
-spec:
-  acme:
-    email: your-email@example.com
-    server: https://acme-staging-v02.api.letsencrypt.org/directory
-    privateKeySecretRef: { name: le-staging-account-key }
-    solvers:
-    - dns01:
-        cloudflare:
-          apiTokenSecretRef:
-            name: cloudflare-api-token-secret
-            key: api-token
----
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: le-prod-cloudflare
-spec:
-  acme:
-    email: your-email@example.com
-    server: https://acme-v02.api.letsencrypt.org/directory
-    privateKeySecretRef: { name: le-prod-account-key }
-    solvers:
-    - dns01:
-        cloudflare:
-          apiTokenSecretRef:
-            name: cloudflare-api-token-secret
-            key: api-token
-```
-
-Apply:
-```bash
-kubectl apply -f docs/snippets/clusterissuers-cloudflare.yaml
-kubectl get clusterissuers
-```
-
-> **Note:** We’ll reference `le-prod-cloudflare` (or `le-staging-cloudflare`) in Ingress TLS annotations during Stage 04.
+5) **BZ pre-stage**  
+   - Repeat **Namespaces + Secret + Issuers** in BZ.  
+   - Keep ingress disabled or `replicaCount: 0`.
 
 ---
 
-## Observability baseline (kube-prometheus-stack)
-
-### 1) Install the stack (internal-only)
-We keep services `ClusterIP` (no LoadBalancer/Ingress) in this stage.
-
-```bash
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-
-helm upgrade --install monitoring prometheus-community/kube-prometheus-stack   --namespace platform   --set grafana.service.type=ClusterIP   --set prometheus.service.type=ClusterIP   --set alertmanager.service.type=ClusterIP
-```
-
-Wait for readiness:
-```bash
-kubectl -n platform rollout status statefulset/alertmanager-monitoring-kube-prometheus-alertmanager --timeout=300s
-kubectl -n platform rollout status statefulset/monitoring-kube-prometheus-prometheus --timeout=300s
-kubectl -n platform rollout status deploy/monitoring-grafana --timeout=300s
-```
-
-### 2) Quick sanity checks
-```bash
-# Prometheus targets
-kubectl -n platform port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090
-# visit http://localhost:9090/targets
-
-# Grafana (temporary, local)
-kubectl -n platform port-forward svc/monitoring-grafana 3000:80
-# visit http://localhost:3000  (admin/admin by default unless chart changes)
-```
-> We won’t expose Grafana publicly until Stage 04 (via Ingress/TLS).
+## Success Criteria
+- `cert-manager` pods **Running**.
+- `ClusterIssuer` resources **Ready** (staging & prod).
+- `ingress-nginx-controller` `Service` in **PZ** has **EXTERNAL-IP**.
+- Optional HTTP smoke returns a response from the echo service.
+- No DNS changes performed yet.
 
 ---
 
-## Validation Checklist
-- `platform` and `app` namespaces exist.
-- `cert-manager` pods healthy in `platform`.  
-  `kubectl -n platform get pods -l app.kubernetes.io/instance=cert-manager`
-- ClusterIssuers created: `le-staging-cloudflare`, `le-prod-cloudflare`.
-- kube-prometheus-stack components healthy:
-  - Prometheus, Alertmanager, Grafana pods are `Running`
-  - Prometheus shows **Targets** for kube-state-metrics and node-exporter as **UP**
-- No LoadBalancer services created yet.
-
----
-
-## Troubleshooting
-- **cert-manager pending challenges (DNS-01):** verify the CF token scope, DNS zone, and that cert-manager can update `_acme-challenge` records (check Cloudflare dashboard).  
-- **Grafana/Prometheus unreachable:** ensure you’re using **port-forward** (ClusterIP only at this stage).  
-- **Helm CRD errors:** make sure `--set crds.enabled=true` was used on first install of cert-manager.
-
----
-
-## Artifacts to Capture
-- Screenshot of Prometheus **Targets** page (all core targets UP).
-- Screenshot of Grafana home (to confirm the instance is alive).
-- `kubectl get clusterissuer -o yaml` outputs filed for audit.
-
----
-
-## Exit Criteria
-- Both components (cert-manager + kube-prometheus-stack) are **installed, healthy, and internal-only**.
-- ClusterIssuers ready to be referenced by future Ingresses.
-- No public endpoints created.
-
----
-
-## Next Stage (04 — DNS & Exposure)
-- Install **Ingress NGINX** (controller) and configure TLS via `cert-manager` (DNS-01).
-- Decide initial DNS pattern:
-  - **CNAME chain** (`wp-active → wp-pz|wp-bz`) with per-zone hostnames
-  - (Later) Cloudflare Load Balancer with pools/weights.
-- Keep everything minimal and reversible for DR tests.
+## What’s Next (Stage-04)
+- Create DNS A/AAAA pointing to PZ LB (and BZ when active).  
+- Issue production certs and wire `wp-active.guajiro.xyz` **CNAME** to the active zone.
+- Define exposure policy & security headers before opening to traffic.
