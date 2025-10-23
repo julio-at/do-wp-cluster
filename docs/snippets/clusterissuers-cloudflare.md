@@ -1,53 +1,43 @@
-# Snippet — ClusterIssuers (Cloudflare DNS-01)
+# ClusterIssuers — Cloudflare DNS-01 (cert-manager)
 
-**Purpose:** Issue TLS certs via Let's Encrypt using Cloudflare DNS-01 for `guajiro.xyz`.  
-**Docs-first:** This is reference YAML shown here for clarity; the actual YAML will live in your repo when you implement.
+**Namespace (Secret):** `cert-manager`  
+**Secret name:** `cloudflare-api-token`  
+**Secret key:** `api-token` (required)
 
-## Prereqs
-- Secret `cloudflare-api-token-secret` in `platform` namespace with key `api-token`.
-- Token scopes: `Zone:Read` + `Zone:DNS:Edit` for the `guajiro.xyz` zone only.
+Use these as a reference to compose `k8s/platform/<zone>/cert-manager/clusterissuers.yaml`.
 
-## YAML (reference)
 ```yaml
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: le-staging-cloudflare
+  name: letsencrypt-staging
 spec:
   acme:
-    email: you@guajiro.xyz
+    email: ops@guajiro.xyz                # REPLACE if needed
     server: https://acme-staging-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
-      name: acme-staging-account-key
+      name: le-account-key-staging
     solvers:
-    - dns01:
-        cloudflare:
-          apiTokenSecretRef:
-            name: cloudflare-api-token-secret
-            key: api-token
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token  # must exist in cert-manager ns
+              key: api-token
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: le-prod-cloudflare
+  name: letsencrypt-prod
 spec:
   acme:
-    email: you@guajiro.xyz
+    email: ops@guajiro.xyz                # REPLACE if needed
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
-      name: acme-prod-account-key
+      name: le-account-key-prod
     solvers:
-    - dns01:
-        cloudflare:
-          apiTokenSecretRef:
-            name: cloudflare-api-token-secret
-            key: api-token
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
 ```
-
-## Usage
-- Add annotation to Ingress: `cert-manager.io/cluster-issuer: le-prod-cloudflare`
-- Certificate status: `kubectl -n app describe certificate wp-tls`
-
-## Common Issues
-- Wrong token name/key → Challenges stay in **Pending**.
-- Zone mismatch → ACME cannot create `_acme-challenge` record.

@@ -14,8 +14,8 @@ output "region" {
 }
 
 output "vpc_id" {
-  value       = digitalocean_vpc.this.id
-  description = "VPC ID"
+  description = "VPC ID used by the cluster (default-<region>)"
+  value       = try(local.vpc_uuid, null)
 }
 
 output "vpc_cidr" {

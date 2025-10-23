@@ -1,74 +1,119 @@
-# Runbook — Platform Bring-Up (Zone bootstrap)
+# Runbook — Platform Bring-up per Zone (Stage 03)
 
-**Purpose:** Bring up a fresh zone (PZ or BZ) from zero to a **ready-but-not-exposed** platform state: VPC/DOKS (if needed), namespaces, cert-manager (DNS-01 with Cloudflare), and kube-prometheus-stack. No public exposure yet.
+**Goal:** Install **cert-manager** and **NGINX Ingress** per zone following the repo structure. Use **DNS-01 (Cloudflare)**. No public exposure yet.
 
----
-
-## Preconditions
-- Terraform var-file for the target zone ready (e.g., `terraform/env/prod/pz.tfvars` or `bz.tfvars`).
-- Cloudflare API token with `Zone:Read` + `Zone:DNS:Edit` for `guajiro.xyz`.
-- Local tools: `terraform ≥ 1.6`, `kubectl`, `helm` ≥ 3.12.
+> Run these steps in **PZ** first. For **BZ**, only do cert-manager + issuers; keep ingress cold.
 
 ---
 
-## Steps
-
-### 1) (If needed) Create VPC + DOKS cluster
+## 0) Select Zone & Kubecontext
+- Ensure kubecontext for the target zone is active:
 ```bash
-cd terraform/doks
-terraform init -upgrade
-terraform workspace new <zone-workspace> || terraform workspace select <zone-workspace>
-terraform apply -var-file=../env/prod/<zone>.tfvars
-# Outputs
-terraform output -raw kubeconfig_raw > ../../artifacts/kubeconfig-<zone>
-export KUBECONFIG=$PWD/../../artifacts/kubeconfig-<zone>
-kubectl get nodes
+# PZ (example)
+doctl kubernetes cluster kubeconfig save wp-pz-doks-nyc3
+kubectl config current-context
+
+# BZ (when prepping)
+doctl kubernetes cluster kubeconfig save wp-bz-doks-sfo3
+kubectl config current-context
 ```
 
-### 2) Create namespaces
+---
+
+## 1) Namespaces + Cloudflare Token Secret
+Create namespaces and store the Cloudflare token (scope: zone `guajiro.xyz`).
+
 ```bash
-kubectl create namespace platform --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace app --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace ingress-nginx --dry-run=client -o yaml | kubectl apply -f -
+
+# Secret must be in cert-manager namespace, key must be 'api-token'
+kubectl -n cert-manager create secret generic cloudflare-api-token   --from-literal=api-token='REPLACE_WITH_CLOUDFLARE_API_TOKEN'   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-### 3) Install cert-manager (CRDs enabled)
+**Notes**
+- Use a **scoped** token (Zone DNS edit + Zone read) for `guajiro.xyz`.
+- Prefer not to commit the token; inject via env/automation or secrets manager.
+
+---
+
+## 2) Install cert-manager (Helm)
 ```bash
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
-helm upgrade --install cert-manager jetstack/cert-manager   --namespace platform   --set crds.enabled=true
-kubectl -n platform rollout status deploy/cert-manager-webhook --timeout=180s
+
+helm upgrade --install cert-manager jetstack/cert-manager   --namespace cert-manager   --version v1.15.3   --set installCRDs=true
+
+kubectl -n cert-manager get pods
 ```
 
-### 4) Store Cloudflare API token (secret)
-```bash
-kubectl -n platform create secret generic cloudflare-api-token-secret   --from-literal=api-token='<YOUR_CF_API_TOKEN>' --dry-run=client -o yaml | kubectl apply -f -
-```
-
-### 5) Create ClusterIssuers (staging + prod)
-`docs/snippets/clusterissuers-cloudflare.yaml` from Stage 03:
-```bash
-kubectl apply -f docs/snippets/clusterissuers-cloudflare.yaml
-kubectl get clusterissuer
-```
-
-### 6) Install kube-prometheus-stack (internal-only)
-```bash
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-helm upgrade --install monitoring prometheus-community/kube-prometheus-stack   --namespace platform   --set grafana.service.type=ClusterIP   --set prometheus.service.type=ClusterIP   --set alertmanager.service.type=ClusterIP
-
-kubectl -n platform rollout status deploy/monitoring-grafana --timeout=300s
-kubectl -n platform rollout status statefulset/monitoring-kube-prometheus-prometheus --timeout=300s
-kubectl -n platform rollout status statefulset/alertmanager-monitoring-kube-prometheus-alertmanager --timeout=300s
-```
-
-### 7) Validation
-- Namespaces exist: `platform`, `app`
-- cert-manager: webhook/CM/CA pods healthy
-- ClusterIssuers present
-- Prometheus/Grafana/Alertmanager running (ClusterIP only)
+Expected: all cert-manager pods **Running**.
 
 ---
 
-## Exit Criteria
-- Zone is ready for application deployment (Stage 05) and later exposure (Stage 04) without public endpoints yet.
+## 3) Apply ClusterIssuers (Cloudflare DNS-01)
+Reference: `docs/snippets/clusterissuers-cloudflare.md`
+
+Apply per zone (PZ first):
+```bash
+# PZ
+kubectl apply -f k8s/platform/pz/cert-manager/clusterissuers.yaml
+kubectl get clusterissuers
+
+# BZ (prep)
+kubectl apply -f k8s/platform/bz/cert-manager/clusterissuers.yaml
+kubectl get clusterissuers
+```
+
+**Optional:** Pre-provision a staging `Certificate` for known hostnames (no DNS A/AAAA required for DNS-01).
+
+---
+
+## 4) Install NGINX Ingress Controller
+**PZ (active):**
+```bash
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx   --namespace ingress-nginx   -f k8s/platform/pz/ingress-nginx/values.yaml
+
+kubectl -n ingress-nginx get svc ingress-nginx-controller
+```
+
+**BZ (keep cold):** either skip or keep `replicaCount: 0` in values.yaml and install the chart, so it’s ready to scale.
+
+---
+
+## 5) Optional: HTTP Smoke (PZ)
+```bash
+kubectl apply -f k8s/platform/pz/ingress-nginx/echo.yaml
+kubectl -n ingress-nginx get svc ingress-nginx-controller -o wide
+EXTERNAL_IP="$(kubectl -n ingress-nginx get svc ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+curl -s "http://${EXTERNAL_IP}/" | head
+```
+
+Cleanup (optional):
+```bash
+kubectl delete -f k8s/platform/pz/ingress-nginx/echo.yaml
+```
+
+---
+
+## 6) Outputs / Evidence
+- `ClusterIssuer` resources show **Ready**.
+- `ingress-nginx-controller` has **EXTERNAL-IP**.
+- (Optional) Echo returns an HTTP response at the controller’s EXTERNAL-IP.
+
+---
+
+## 7) Next (Stage-04)
+- Create DNS records pointing to PZ LB (and BZ when needed).  
+- Switch `Certificate` IssuerRef to **prod** and re-issue.  
+- Prepare Ingress for WordPress (TLS, security headers, allowed paths).
+
+---
+
+## Rollback
+- Uninstall ingress-nginx (PZ):  
+  `helm -n ingress-nginx uninstall ingress-nginx`
+- Leave cert-manager and issuers in place; they’re safe to keep for Stage-04.

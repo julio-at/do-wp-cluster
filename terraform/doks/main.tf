@@ -15,11 +15,25 @@ locals {
   )
 }
 
-# VPC dedicada para el clúster (una por región)
-resource "digitalocean_vpc" "this" {
-  name     = "${var.cluster_name}-vpc"
-  region   = var.region
-  ip_range = var.vpc_cidr
+############################################################
+# Use regional default VPC (no VPC creation)
+############################################################
+
+# Asume que ya tienes: variable "region" { ... } definida en variables.tf
+
+# Default VPC name pattern in DO is "default-<region>"
+locals {
+  default_vpc_name = "default-${var.region}"
+}
+
+# Look up the default VPC by NAME
+data "digitalocean_vpc" "default" {
+  name = local.default_vpc_name
+}
+
+# Convenience local to pass into cluster resources
+locals {
+  vpc_uuid = data.digitalocean_vpc.default.id
 }
 
 # Cluster DOKS mínimo (sin LB, sin addon extra)
@@ -28,7 +42,7 @@ resource "digitalocean_kubernetes_cluster" "this" {
   region  = var.region
   version = local.selected_k8s_version
 
-  vpc_uuid = digitalocean_vpc.this.id
+  vpc_uuid = local.vpc_uuid
 
   node_pool {
     name       = "default"
@@ -39,7 +53,7 @@ resource "digitalocean_kubernetes_cluster" "this" {
     min_nodes  = var.enable_autoscale ? var.min_nodes : null
     max_nodes  = var.enable_autoscale ? var.max_nodes : null
 
-    tags       = var.tags
+    tags = var.tags
   }
 
   tags = var.tags

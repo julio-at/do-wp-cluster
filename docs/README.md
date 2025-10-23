@@ -1,145 +1,103 @@
-# Documentation Index — do-wp-cluster
+# do-wp-cluster — Documentation Index
 
-**Purpose:** Master guide to design, operations, and runbooks for WordPress on DigitalOcean Kubernetes (DOKS) with multi‑zone DR (**PZ nyc3** / **BZ sfo3**).  
-**Workflow:** documentation → implementation → tests.
+> Project: **do-wp-cluster** • Domain: **guajiro.xyz** • Zones: **PZ (nyc3)** / **BZ (sfo3)**
 
----
-
-## Conventions
-- **Zones:** **PZ** = Primary Zone (nyc3), **BZ** = Backup Zone (sfo3).
-- **Domains:** `wp-active.guajiro.xyz` (logical CNAME) → `wp-pz.guajiro.xyz` or `wp-bz.guajiro.xyz`.
-- **Principles:** minimal steady cost, explicit flips, managed DB, object storage for media.
+This index keeps pointers to the working docs, runbooks, and snippets we use across stages. It matches the current repository structure (branch `dodb`).
 
 ---
 
-## Start Here (Stages)
-1. Stage 01 — Preparation → [docs/stages/01-preparation.md](stages/01-preparation.md)
-2. Stage 02 — Minimal Infrastructure → [docs/stages/02-minimal-infrastructure.md](stages/02-minimal-infrastructure.md)
-3. Stage 03 — Ingress & Certs (docs-first) → [docs/stages/03-ingress-and-certs.md](stages/03-ingress-and-certs.md)
-4. Stage 04 — DNS CNAME & Exposure → [docs/stages/04-dns-cname-and-exposure.md](stages/04-dns-cname-and-exposure.md)
-5. Stage 05 — WordPress Minimal → [docs/stages/05-wordpress-minimal.md](stages/05-wordpress-minimal.md)
-6. Stage 06 — Backup Zone On-Demand → [docs/stages/06-backup-zone-on-demand.md](stages/06-backup-zone-on-demand.md)
-7. Stage 07 — DR Game Day → [docs/stages/07-disaster-recovery-game-day.md](stages/07-disaster-recovery-game-day.md)
+## Quick Links
 
-> Stages are designed to be executed in order; each stage has acceptance criteria and links to supporting docs.
+- **Stages**
+  - Stage 01: Preparation — `docs/stages/01-preparation.md`
+  - Stage 02: Infra (DOKS + DO Managed MySQL) — `docs/stages/02-infra.md` and `docs/stages/02-minimal-infrastructure.md`
+  - Stage 03: Platform Baseline (cert-manager + Ingress) — `docs/stages/03-platform-baseline.md`
+  - Stage 04: DNS & Exposure — `docs/stages/04-dns-and-exposure.md` / `docs/stages/05-dns-and-exposure.md`
+  - Stage 06: Backup Zone (On-demand) — `docs/stages/06-backup-zone-on-demand.md`
+  - Stage 07: DR Game Day — `docs/stages/07-disaster-recovery-game-day.md`
 
----
+- **Runbooks**
+  - Stage-02 DB (Primary/Backup) — `docs/runbooks/stage-02-db.md`
+  - DB: Promote Replica → Writer (BZ) — `docs/runbooks/db/promote-replica-to-writer.md`
+  - DB: Restore Writer in BZ — `docs/runbooks/db/restore-writer-in-bz.md`
+  - DNS: Flip Active CNAME — `docs/runbooks/dns/flip-active-cname.md`
+  - Platform: Bring-up per Zone (Stage 03) — `docs/runbooks/platform/platform-bringup-zone.md`
+  - Platform: Teardown / Failback — `docs/runbooks/platform/platform-teardown-zone.md`, `docs/runbooks/platform/failback-to-primary-zone.md`
 
-## Operations Runbooks
-- **DNS flip (CNAME)** — [docs/runbooks/dns/flip-active-cname.md](runbooks/dns/flip-active-cname.md)
-- **Promote replica to writer (BZ)** — [docs/runbooks/db/promote-replica-to-writer.md](runbooks/db/promote-replica-to-writer.md)
-- **Restore writer in BZ** — [docs/runbooks/db/restore-writer-in-bz.md](runbooks/db/restore-writer-in-bz.md)
-- **Platform bring‑up (zone)** — [docs/runbooks/platform/platform-bringup-zone.md](runbooks/platform/platform-bringup-zone.md)
-- **Platform teardown (zone)** — [docs/runbooks/platform/platform-teardown-zone.md](runbooks/platform/platform-teardown-zone.md)
-- **Failback to PZ** — [docs/runbooks/platform/failback-to-primary-zone.md](runbooks/platform/failback-to-primary-zone.md)
-- **WP minimal deploy** — [docs/runbooks/app/wp-minimal-deploy.md](runbooks/app/wp-minimal-deploy.md)
-- **DR Game‑Day playbook** — [docs/runbooks/dr-game-day-playbook.md](runbooks/dr-game-day-playbook.md)
+- **Snippets**
+  - cert-manager ClusterIssuers (Cloudflare DNS-01) — `docs/snippets/clusterissuers-cloudflare.md`
+  - cert-manager Certificates (staging → prod) — `docs/snippets/certificates-usage.md`
+  - Ingress NGINX values — `docs/snippets/ingress-nginx-values.md`
+  - kube-prometheus-stack values — `docs/snippets/kps-values.md`
+  - ExternalDNS annotations — `docs/snippets/externaldns-annotations.md`
 
----
-
-## Infra
-- Overview — [docs/infra/00-overview.md](infra/00-overview.md)
-- Layout — [docs/infra/terraform-layout.md](infra/terraform-layout.md)
-- Environments & Workspaces — [docs/infra/environments-and-workspaces.md](infra/environments-and-workspaces.md)
-- Variables & tfvars — [docs/infra/variables-and-tfvars.md](infra/variables-and-tfvars.md)
-- DOKS module — [docs/infra/doks-module.md](infra/doks-module.md)
-- Networking & VPC — [docs/infra/networking-vpc.md](infra/networking-vpc.md)
-- Tagging & Naming — [docs/infra/tagging-and-naming.md](infra/tagging-and-naming.md)
-- Cost controls — [docs/infra/cost-controls.md](infra/cost-controls.md)
-- Cost & Hygiene (extended) — [docs/infra/cost-playbook.md](infra/cost-playbook.md)
+- **Testing**
+  - DB smoke (K8s → DO Managed MySQL, TLS) — `docs/testing/db-smoke-test.md`
+  - Evidence checklist — `docs/testing/evidence-checklist.md`
+  - Stage 05 smoke — `docs/testing/stage05-smoke-tests.md`
+  - Stage 06 BZ readiness — `docs/testing/stage06-bz-readiness.md`
+  - Stage 07 DR rehearsal — `docs/testing/stage07-dr-rehearsal.md`
 
 ---
 
-## DNS
-- CNAME Strategy — [docs/dns/cname-strategy.md](dns/cname-strategy.md)
-- TTL Policy — [docs/dns/ttl-policy.md](dns/ttl-policy.md)
+## Stage 02 — What to Expect
+
+- Terraform (per workspace) provisions:
+  - DOKS cluster per region (PZ: nyc3, BZ: sfo3)
+  - DO Managed MySQL per region (tier mínimo), user `wp_app`, DB `wp_prod`
+  - VPC: default per region (no DB firewall for now)
+- **Outputs**: host/private_host, port, database, username, password, ca_cert, cluster_name.
+- **Connectivity test script**: `terraform/scripts/db-smoke.sh` (no env vars required).
+  ```bash
+  cd terraform/doks
+  bash ../scripts/db-smoke.sh --zone pz    # or --zone bz | --zone both
+  ```
+
+If `apply` fails with “name already exists”, import existing resources to the workspace before re-applying.
 
 ---
 
-## App (WordPress)
-- Overview — [docs/app/00-overview.md](app/00-overview.md)
-- Configuration — [docs/app/wordpress-configuration.md](app/wordpress-configuration.md)
-- Values Blueprint — [docs/app/values-blueprint.md](app/values-blueprint.md)
-- Content & Media Strategy — [docs/app/content-media-strategy.md](app/content-media-strategy.md)
-- Blue/Green release plan — [docs/app/bluegreen-release-plan.md](app/bluegreen-release-plan.md)
-- Operational checklists — [docs/app/operational-checklists.md](app/operational-checklists.md)
+## Stage 03 — What to Expect
+
+- Install **cert-manager** with CRDs in each zone; store **Cloudflare API token** as Secret:
+  - Secret: `cert-manager/cloudflare-api-token` (key: `api-token`)
+- Apply **ClusterIssuers** (staging + prod) per zone:
+  - PZ: `k8s/platform/pz/cert-manager/clusterissuers.yaml`
+  - BZ: `k8s/platform/bz/cert-manager/clusterissuers.yaml`
+- (Optional) Pre-provision **Certificates** (staging) per zone:
+  - PZ: `k8s/platform/pz/tls/wp-cert.yaml`
+  - BZ: `k8s/platform/bz/tls/wp-cert.yaml`
+- Deploy **NGINX Ingress** in **PZ** (`LoadBalancer`, `replicaCount: 2`):
+  - `k8s/platform/pz/ingress-nginx/values.yaml`
+  - Optional HTTP smoke: `k8s/platform/pz/ingress-nginx/echo.yaml`
+- Keep **BZ** ingress **cold** (e.g., `replicaCount: 0`).
+
+Full step-by-step: `docs/runbooks/platform/platform-bringup-zone.md`
 
 ---
 
-## Observability
-- Overview — [docs/observability/00-overview.md](observability/00-overview.md)
-- Metrics stack — [docs/observability/01-metrics-stack.md](observability/01-metrics-stack.md)
-- Alerts & SLOs — [docs/observability/02-alerts-and-slos.md](observability/02-alerts-and-slos.md)
-- Grafana dashboards — [docs/observability/03-grafana-dashboards.md](observability/03-grafana-dashboards.md)
-- Synthetic probes — [docs/observability/04-synthetic-probes.md](observability/04-synthetic-probes.md)
-- Logging & tracing — [docs/observability/05-logging-and-tracing.md](observability/05-logging-and-tracing.md)
-- Multi‑zone & DR observability — [docs/observability/06-multi-zone-dr-observability.md](observability/06-multi-zone-dr-observability.md)
-- Observability runbooks — [docs/observability/07-runbooks-observability.md](observability/07-runbooks-observability.md)
+## ADRs / Decisions
+
+- CNAME active record is **manual** (no ExternalDNS) — `docs/decisions/adr-01-cname-active-record.md`
+- DR strategy: **restore-on-activation** (no continuous replica) — `docs/decisions/adr-02-dr-strategy-replica-vs-restore.md`
+- Managed MySQL (DO) vs self-hosted — `docs/decisions/adr-03-managed-mysql-vs-selfhosted.md`
+- ExternalDNS scope (when/if enabled) — `docs/decisions/adr-04-externaldns-scope.md`
+- GitOps vs Actions — `docs/decisions/adr-05-gitops-vs-actions.md`
 
 ---
 
-## Security
-- Secrets policy — [docs/security/secrets-policy.md](security/secrets-policy.md)
-- Backup policy — [docs/security/backup-policy.md](security/backup-policy.md)
-- State backend — [docs/security/state-backend.md](security/state-backend.md)
-- Trusted sources — [docs/security/trusted-sources.md](security/trusted-sources.md)
+## Repo Structure (short)
+
+See the repo for full tree; key areas:
+- `terraform/doks`: IaC for clusters + managed DBs (per workspace).
+- `k8s/platform`: platform manifests by zone (cert-manager, ingress, tls).
+- `docs/`: stages, runbooks, snippets, testing, decisions.
+- `docs/app`, `docs/db`, `docs/observability`: app/database/obs specifics.
 
 ---
 
-## CI/CD
-- Overview — [docs/cicd/00-overview.md](cicd/00-overview.md)
-- GitHub Actions (design) — [docs/cicd/github-actions.md](cicd/github-actions.md)
-- GitLab CI (design) — [docs/cicd/gitlab-ci.md](cicd/gitlab-ci.md)
-- Pipelines & gates — [docs/cicd/pipelines-and-gates.md](cicd/pipelines-and-gates.md)
-- Secrets & permissions — [docs/cicd/secrets-and-permissions.md](cicd/secrets-and-permissions.md)
-- GitOps vs Actions — [docs/cicd/gitops-vs-actions.md](cicd/gitops-vs-actions.md)
-- Promotion strategy — [docs/cicd/promotion-strategy.md](cicd/promotion-strategy.md)
+## Notes
 
----
-
-## Platform (Ingress)
-- Ingress operations (ES) — [docs/platform/ingress-operations.md](platform/ingress-operations.md)
-- Ingress operations (EN) — [docs/platform/ingress-operations-en.md](platform/ingress-operations-en.md)
-- LB IP rotation (ES) — [docs/platform/lb-ip-rotation.md](platform/lb-ip-rotation.md)
-- LB IP rotation (EN) — [docs/platform/lb-ip-rotation-en.md](platform/lb-ip-rotation-en.md)
-- Exposure policy (ES) — [docs/platform/exposure-policy.md](platform/exposure-policy.md)
-- Exposure policy (EN) — [docs/platform/exposure-policy-en.md](platform/exposure-policy-en.md)
-
----
-
-## Database
-- Overview — [docs/db/00-overview.md](db/00-overview.md)
-- Operations — [docs/db/operations.md](db/operations.md)
-- Connectivity & TLS tests — [docs/db/connectivity-tests.md](db/connectivity-tests.md)
-- Password rotation — [docs/db/password-rotation.md](db/password-rotation.md)
-- Sizing & maintenance — [docs/db/sizing-and-maintenance.md](db/sizing-and-maintenance.md)
-
----
-
-## Testing
-- Overview — [docs/testing/00-overview.md](testing/00-overview.md)
-- Stage 05 — smoke/functional — [docs/testing/stage05-smoke-tests.md](testing/stage05-smoke-tests.md)
-- Stage 06 — BZ readiness — [docs/testing/stage06-bz-readiness.md](testing/stage06-bz-readiness.md)
-- Stage 07 — DR rehearsal — [docs/testing/stage07-dr-rehearsal.md](testing/stage07-dr-rehearsal.md)
-- Evidence checklist — [docs/testing/evidence-checklist.md](testing/evidence-checklist.md)
-- RTO/RPO measurement — [docs/testing/rto-rpo-method.md](testing/rto-rpo-method.md)
-
----
-
-## Snippets (reference)
-- ClusterIssuers (Cloudflare) — [docs/snippets/clusterissuers-cloudflare.md](snippets/clusterissuers-cloudflare.md)
-- Ingress-NGINX values — [docs/snippets/ingress-nginx-values.md](snippets/ingress-nginx-values.md)
-- kube-prometheus-stack values — [docs/snippets/kps-values.md](snippets/kps-values.md)
-- ExternalDNS annotations — [docs/snippets/externaldns-annotations.md](snippets/externaldns-annotations.md)
-
----
-
-## Decisions & FAQ
-- ADRs — [ADR-01](decisions/adr-01-cname-active-record.md), [ADR-02](decisions/adr-02-dr-strategy-replica-vs-restore.md), [ADR-03](decisions/adr-03-managed-mysql-vs-selfhosted.md), [ADR-04](decisions/adr-04-externaldns-scope.md), [ADR-05](decisions/adr-05-gitops-vs-actions.md)
-- FAQ — [docs/faq.md](faq.md)
-
----
-
-## Next Steps
-- Lock docs → implement Stages 01–04 in PZ → Stage 05 (WP minimal) → Stage 06 (BZ on‑demand) → Stage 07 (DR Game‑Day).
-- After first pass: consider Argo CD, ExternalDNS, and exposing monitoring behind auth.
+- Keep `BZ` “cold” to control costs; activate on demand (Stage 06).
+- `wp-active.guajiro.xyz` remains **manual CNAME** flip.
+- No DB firewall for now; TLS + credentials only (per Stage-02 scope).
